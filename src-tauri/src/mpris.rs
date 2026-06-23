@@ -15,8 +15,8 @@ pub struct Mpris {
 impl Mpris {
     pub fn init(player: PlayerHandle) -> Result<Self, SouvlakiError> {
         let config = PlatformConfig {
-            dbus_name: "com.lukestebner.musicplayer",
-            display_name: "Music Player",
+            dbus_name: "com.lukestebner.spudbox",
+            display_name: "Spudbox",
             hwnd: None,
         };
 

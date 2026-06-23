@@ -1,6 +1,13 @@
-# Tauri + SvelteKit + TypeScript
+# Spudbox
 
-This template should help get you started developing with Tauri, SvelteKit and TypeScript in Vite.
+A custom music player for Linux: library browsing, hi-res FLAC/MP3/AAC/WAV playback with gapless transitions, and MPRIS integration. Built with Tauri v2, Rust, and Svelte.
+
+## Development
+
+```
+npm install
+npm run tauri dev
+```
 
 ## Recommended IDE Setup
 

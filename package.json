@@ -1,5 +1,5 @@
 {
-  "name": "music-player",
+  "name": "spudbox",
   "version": "0.1.0",
   "description": "Custom Linux music player with library browsing and hi-res FLAC playback",
   "type": "module",

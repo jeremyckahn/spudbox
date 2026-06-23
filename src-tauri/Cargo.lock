@@ -2957,35 +2957,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "music-player"
-version = "0.1.0"
-dependencies = [
- "arc-swap",
- "cpal",
- "crossbeam-channel",
- "image",
- "lofty",
- "notify",
- "r2d2",
- "r2d2_sqlite",
- "rayon",
- "rodio",
- "rubato",
- "rusqlite",
- "rusqlite_migration",
- "serde",
- "serde_json",
- "souvlaki",
- "symphonia",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "thiserror 2.0.18",
- "walkdir",
-]
-
-[[package]]
 name = "ndk"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4727,6 +4698,35 @@ dependencies = [
  "windows 0.44.0",
  "zbus 3.15.2",
  "zvariant 3.15.2",
+]
+
+[[package]]
+name = "spudbox"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "cpal",
+ "crossbeam-channel",
+ "image",
+ "lofty",
+ "notify",
+ "r2d2",
+ "r2d2_sqlite",
+ "rayon",
+ "rodio",
+ "rubato",
+ "rusqlite",
+ "rusqlite_migration",
+ "serde",
+ "serde_json",
+ "souvlaki",
+ "symphonia",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "thiserror 2.0.18",
+ "walkdir",
 ]
 
 [[package]]

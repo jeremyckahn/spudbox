@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "music-player",
+  "productName": "Spudbox",
   "version": "0.1.0",
   "identifier": "com.lukestebner.musicplayer",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Music Player",
+        "title": "Spudbox",
         "width": 1280,
         "height": 800
       }

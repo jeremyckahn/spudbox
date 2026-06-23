@@ -241,7 +241,7 @@ mod tests {
         let lib_path = PathBuf::from("/home/luke/Dropbox/Music/CD Rips");
         assert!(lib_path.exists(), "test library path not found");
 
-        let tmp_dir = std::env::temp_dir().join(format!("music_player_test_{}", std::process::id()));
+        let tmp_dir = std::env::temp_dir().join(format!("spudbox_test_{}", std::process::id()));
         std::fs::create_dir_all(&tmp_dir).unwrap();
         let db_path = tmp_dir.join("test_library.sqlite3");
 
