@@ -115,6 +115,7 @@ pub struct PlayableTrack {
     pub title: String,
     pub artist: String,
     pub album: String,
+    pub album_id: Option<i64>,
     pub art_path: Option<String>,
 }
 
@@ -126,12 +127,13 @@ fn playable_track_from(row: &rusqlite::Row) -> rusqlite::Result<PlayableTrack> {
         title: row.get(3)?,
         artist: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
         album: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-        art_path: row.get(6)?,
+        album_id: row.get(6)?,
+        art_path: row.get(7)?,
     })
 }
 
 const PLAYABLE_TRACK_COLUMNS: &str =
-    "t.id, t.path, t.duration_ms, t.title, ar.name, al.title, al.art_path";
+    "t.id, t.path, t.duration_ms, t.title, ar.name, al.title, al.id, al.art_path";
 
 /// Resolves a batch of track ids to their playable info, preserving the
 /// order of `track_ids` (a plain `WHERE id IN (...)` does not) since that

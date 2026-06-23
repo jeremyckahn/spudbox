@@ -32,4 +32,12 @@ impl Queue {
         self.index -= 1;
         self.current()
     }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    pub fn track_ids(&self) -> Vec<i64> {
+        self.tracks.iter().map(|t| t.track_id).collect()
+    }
 }

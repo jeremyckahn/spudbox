@@ -27,6 +27,7 @@ pub fn playback_play_queue(
             title: t.title,
             artist: t.artist,
             album: t.album,
+            album_id: t.album_id,
             art_path: t.art_path,
         })
         .collect();

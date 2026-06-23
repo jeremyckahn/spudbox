@@ -15,6 +15,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 
 use crate::mpris::Mpris;
+use crate::state::DbPool;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -34,6 +35,7 @@ pub struct PlaybackSnapshot {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
+    pub album_id: Option<i64>,
     pub art_path: Option<String>,
 }
 
@@ -48,6 +50,7 @@ impl Default for PlaybackSnapshot {
             title: None,
             artist: None,
             album: None,
+            album_id: None,
             art_path: None,
         }
     }
@@ -60,6 +63,7 @@ pub struct TrackInfo {
     pub title: String,
     pub artist: String,
     pub album: String,
+    pub album_id: Option<i64>,
     pub art_path: Option<String>,
 }
 
@@ -114,7 +118,7 @@ impl EngineBuilder {
         }
     }
 
-    pub fn spawn(self, app: AppHandle, mpris: Arc<Mpris>) {
-        thread::spawn(move || engine::run_engine(self.rx, self.snapshot, app, mpris));
+    pub fn spawn(self, app: AppHandle, mpris: Arc<Mpris>, db: DbPool) {
+        thread::spawn(move || engine::run_engine(self.rx, self.snapshot, app, mpris, db));
     }
 }

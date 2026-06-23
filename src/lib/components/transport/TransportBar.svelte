@@ -1,7 +1,14 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { library } from "$lib/stores/library.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { formatDuration } from "$lib/format";
+
+  function goToCurrentAlbum() {
+    if (player.snapshot.album_id !== null) {
+      library.goToAlbum(player.snapshot.album_id);
+    }
+  }
 
   let seeking = $state(false);
   let seekValue = $state(0);
@@ -23,7 +30,12 @@
 </script>
 
 <div class="transport">
-  <div class="now-playing">
+  <button
+    class="now-playing"
+    onclick={goToCurrentAlbum}
+    disabled={player.snapshot.album_id === null}
+    aria-label="Go to album"
+  >
     <div class="art">
       {#if player.snapshot.art_path}
         <img src={convertFileSrc(player.snapshot.art_path)} alt={player.snapshot.album ?? ""} />
@@ -35,7 +47,7 @@
       <div class="title">{player.snapshot.title ?? "Nothing playing"}</div>
       <div class="artist">{player.snapshot.artist ?? ""}</div>
     </div>
-  </div>
+  </button>
 
   <div class="controls">
     <button
@@ -102,6 +114,22 @@
     align-items: center;
     gap: 0.75em;
     min-width: 0;
+    background: none;
+    border: none;
+    padding: 0.25em;
+    border-radius: var(--radius);
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .now-playing:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+
+  .now-playing:disabled {
+    cursor: default;
   }
 
   .art {

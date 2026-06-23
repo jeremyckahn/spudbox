@@ -9,6 +9,7 @@ export type PlaybackSnapshot = {
   title: string | null;
   artist: string | null;
   album: string | null;
+  album_id: number | null;
   art_path: string | null;
 };
 

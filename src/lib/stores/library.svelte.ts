@@ -21,12 +21,29 @@ function createLibraryStore() {
   }
 
   async function selectAlbum(albumId: number) {
+    // Fetch first, then assign both together: assigning selectedAlbumId
+    // alone would immediately remount the keyed track-list view (see
+    // +page.svelte) while `tracks` still held the previous album's rows,
+    // so the freshly-mounted virtualizer would briefly size itself off
+    // stale data.
+    const newTracks = await commands.libraryGetTracksByAlbum(albumId);
     selectedAlbumId = albumId;
-    tracks = await commands.libraryGetTracksByAlbum(albumId);
+    tracks = newTracks;
   }
 
   function backToAlbums() {
     selectedAlbumId = null;
+  }
+
+  // Navigates to an album's track list regardless of the currently
+  // selected artist filter (e.g. from the now-playing bar, which can
+  // point at an album outside whatever's currently browsed) by resetting
+  // to "All Albums" first so the target album is guaranteed to be in the
+  // loaded list.
+  async function goToAlbum(albumId: number) {
+    selectedArtistId = null;
+    await loadAlbums();
+    await selectAlbum(albumId);
   }
 
   async function refresh() {
@@ -85,6 +102,7 @@ function createLibraryStore() {
     },
     selectArtist,
     selectAlbum,
+    goToAlbum,
     backToAlbums,
     refresh,
     rescan,

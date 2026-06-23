@@ -6,7 +6,10 @@
 
   let { children } = $props();
 
-  library.refresh();
+  // Show whatever's already in the DB immediately, then kick off a scan in
+  // the background (cheap if nothing changed) so the view updates if
+  // anything's new without blocking startup on it.
+  library.refresh().then(() => library.rescan());
 </script>
 
 <div class="app-shell">

@@ -36,7 +36,7 @@ pub fn run() {
             let engine_builder = audio::EngineBuilder::new();
             let player = engine_builder.handle();
             let mpris = Arc::new(Mpris::init(player.clone()).expect("failed to init mpris"));
-            engine_builder.spawn(app.handle().clone(), mpris);
+            engine_builder.spawn(app.handle().clone(), mpris, pool.clone());
 
             app.manage(AppState { db: pool, player });
             Ok(())

@@ -12,6 +12,7 @@ function createPlayerStore() {
     title: null,
     artist: null,
     album: null,
+    album_id: null,
     art_path: null,
   });
 

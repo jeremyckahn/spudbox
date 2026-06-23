@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use arc_swap::ArcSwap;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
@@ -9,10 +9,22 @@ use tauri::{AppHandle, Emitter};
 
 use super::decode::FileSource;
 use super::{PlaybackSnapshot, PlaybackState, PlayerCommand, Queue, TrackInfo};
+use crate::db::queries::{settings, stats, tracks};
 use crate::mpris::Mpris;
+use crate::state::DbPool;
 
 const PROGRESS_EVENT: &str = "playback-progress";
 const TICK: Duration = Duration::from_millis(250);
+/// How often to checkpoint the session (queue/position) to disk during
+/// otherwise-uneventful playback, so an ungraceful exit only loses a few
+/// seconds of resume accuracy rather than falling back to wherever the
+/// current track last started.
+const SESSION_CHECKPOINT_TICKS: u64 = 40; // ~10s at the 250ms tick above
+
+const SETTING_VOLUME: &str = "volume";
+const SETTING_LAST_QUEUE: &str = "last_queue";
+const SETTING_LAST_QUEUE_INDEX: &str = "last_queue_index";
+const SETTING_LAST_POSITION_MS: &str = "last_position_ms";
 
 struct EngineState {
     handle: OutputStreamHandle,
@@ -20,6 +32,8 @@ struct EngineState {
     queue: Option<Queue>,
     last_sink_len: usize,
     volume: f32,
+    db: DbPool,
+    tick_count: u64,
 }
 
 pub(super) fn run_engine(
@@ -27,6 +41,7 @@ pub(super) fn run_engine(
     snapshot: Arc<ArcSwap<PlaybackSnapshot>>,
     app: AppHandle,
     mpris: Arc<Mpris>,
+    db: DbPool,
 ) {
     let (_stream, handle) = match OutputStream::try_default() {
         Ok(v) => v,
@@ -42,7 +57,11 @@ pub(super) fn run_engine(
         queue: None,
         last_sink_len: 0,
         volume: 1.0,
+        db,
+        tick_count: 0,
     };
+
+    restore_session(&mut state, &mpris);
 
     loop {
         match rx.recv_timeout(TICK) {
@@ -52,6 +71,12 @@ pub(super) fn run_engine(
         }
 
         poll_queue_advance(&mut state, &mpris);
+
+        state.tick_count += 1;
+        let is_playing = state.sink.as_ref().is_some_and(|s| !s.is_paused());
+        if is_playing && state.tick_count % SESSION_CHECKPOINT_TICKS == 0 {
+            persist_session(&state);
+        }
 
         let snap = build_snapshot(&state);
         snapshot.store(Arc::new(snap.clone()));
@@ -85,11 +110,13 @@ fn poll_queue_advance(state: &mut EngineState, mpris: &Mpris) {
 
     if advanced {
         if let Some(queue) = &state.queue {
-            announce_current(queue, mpris);
+            announce_current(queue, mpris, true);
             if let Some(next) = queue.peek_next() {
                 append_track(sink, next);
             }
         }
+        record_current_play(state);
+        persist_session(state);
     } else {
         state.queue = None;
         mpris.set_playback(MediaPlayback::Stopped);
@@ -104,7 +131,9 @@ fn handle_command(state: &mut EngineState, cmd: PlayerCommand, mpris: &Mpris) {
                 return;
             }
             state.queue = Some(Queue::new(tracks, start_index));
-            start_playback_from_queue(state, mpris);
+            start_playback_from_queue(state, mpris, true, None);
+            record_current_play(state);
+            persist_session(state);
         }
         PlayerCommand::Play => {
             if let Some(sink) = &state.sink {
@@ -113,6 +142,7 @@ fn handle_command(state: &mut EngineState, cmd: PlayerCommand, mpris: &Mpris) {
                     progress: Some(MediaPosition(sink.get_pos())),
                 });
             }
+            persist_session(state);
         }
         PlayerCommand::Pause => {
             if let Some(sink) = &state.sink {
@@ -121,6 +151,7 @@ fn handle_command(state: &mut EngineState, cmd: PlayerCommand, mpris: &Mpris) {
                     progress: Some(MediaPosition(sink.get_pos())),
                 });
             }
+            persist_session(state);
         }
         PlayerCommand::Next => {
             if let Some(sink) = &state.sink {
@@ -134,7 +165,9 @@ fn handle_command(state: &mut EngineState, cmd: PlayerCommand, mpris: &Mpris) {
                 .map(|q| q.move_to_previous().is_some())
                 .unwrap_or(false);
             if moved {
-                start_playback_from_queue(state, mpris);
+                start_playback_from_queue(state, mpris, true, None);
+                record_current_play(state);
+                persist_session(state);
             } else if let Some(sink) = &state.sink {
                 let _ = sink.try_seek(Duration::ZERO);
             }
@@ -151,15 +184,16 @@ fn handle_command(state: &mut EngineState, cmd: PlayerCommand, mpris: &Mpris) {
             if let Some(sink) = &state.sink {
                 sink.set_volume(volume);
             }
+            persist_session(state);
         }
     }
 }
 
 /// Creates a fresh sink for `state.queue`'s current position, appends the
 /// current track plus (if any) the next one so the sink is always one
-/// track ahead, and starts playback. Used both for a brand-new queue and
-/// for restarting at a different position (`Previous`).
-fn start_playback_from_queue(state: &mut EngineState, mpris: &Mpris) {
+/// track ahead, and starts (or, for session restore, leaves paused at a
+/// given position) playback.
+fn start_playback_from_queue(state: &mut EngineState, mpris: &Mpris, autoplay: bool, seek_to: Option<Duration>) {
     let sink = match Sink::try_new(&state.handle) {
         Ok(s) => s,
         Err(e) => {
@@ -178,8 +212,15 @@ fn start_playback_from_queue(state: &mut EngineState, mpris: &Mpris) {
         if let Some(next) = queue.peek_next() {
             append_track(&sink, next);
         }
-        sink.play();
-        announce_current(queue, mpris);
+        if autoplay {
+            sink.play();
+        } else {
+            sink.pause();
+        }
+        if let Some(pos) = seek_to {
+            let _ = sink.try_seek(pos);
+        }
+        announce_current(queue, mpris, autoplay);
     }
 
     state.last_sink_len = sink.len();
@@ -199,7 +240,7 @@ fn append_track(sink: &Sink, track: &TrackInfo) -> bool {
     }
 }
 
-fn announce_current(queue: &Queue, mpris: &Mpris) {
+fn announce_current(queue: &Queue, mpris: &Mpris, playing: bool) {
     let Some(track) = queue.current() else { return };
     mpris.set_metadata(MediaMetadata {
         title: Some(&track.title),
@@ -208,9 +249,90 @@ fn announce_current(queue: &Queue, mpris: &Mpris) {
         duration: Some(Duration::from_millis(track.duration_ms)),
         cover_url: None,
     });
-    mpris.set_playback(MediaPlayback::Playing {
-        progress: Some(MediaPosition(Duration::ZERO)),
+    let progress = Some(MediaPosition(Duration::ZERO));
+    mpris.set_playback(if playing {
+        MediaPlayback::Playing { progress }
+    } else {
+        MediaPlayback::Paused { progress }
     });
+}
+
+fn record_current_play(state: &EngineState) {
+    let Some(track_id) = state.queue.as_ref().and_then(|q| q.current()).map(|t| t.track_id) else {
+        return;
+    };
+    let Ok(conn) = state.db.get() else { return };
+    let played_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+    if let Err(e) = stats::record_play(&conn, track_id, played_at) {
+        eprintln!("failed to record play for track {track_id}: {e}");
+    }
+}
+
+fn persist_session(state: &EngineState) {
+    let Ok(conn) = state.db.get() else { return };
+    let _ = settings::set(&conn, SETTING_VOLUME, &state.volume.to_string());
+
+    let Some(queue) = &state.queue else { return };
+    let ids = queue.track_ids();
+    let Ok(ids_json) = serde_json::to_string(&ids) else { return };
+    let position_ms = state.sink.as_ref().map(|s| s.get_pos().as_millis() as u64).unwrap_or(0);
+
+    let _ = settings::set(&conn, SETTING_LAST_QUEUE, &ids_json);
+    let _ = settings::set(&conn, SETTING_LAST_QUEUE_INDEX, &queue.index().to_string());
+    let _ = settings::set(&conn, SETTING_LAST_POSITION_MS, &position_ms.to_string());
+}
+
+/// Restores volume and, if a previous queue was saved, reconstructs it and
+/// leaves it paused at the last known position — never autoplays on
+/// launch. Deliberately does not call `record_current_play`: restoring a
+/// session isn't a new play of that track.
+fn restore_session(state: &mut EngineState, mpris: &Mpris) {
+    let Ok(conn) = state.db.get() else { return };
+
+    if let Ok(Some(vol)) = settings::get(&conn, SETTING_VOLUME) {
+        if let Ok(vol) = vol.parse::<f32>() {
+            state.volume = vol;
+        }
+    }
+
+    let Ok(Some(ids_json)) = settings::get(&conn, SETTING_LAST_QUEUE) else { return };
+    let Ok(track_ids) = serde_json::from_str::<Vec<i64>>(&ids_json) else { return };
+    if track_ids.is_empty() {
+        return;
+    }
+    let index: usize = settings::get(&conn, SETTING_LAST_QUEUE_INDEX)
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let position_ms: u64 = settings::get(&conn, SETTING_LAST_POSITION_MS)
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    let Ok(playable) = tracks::get_playable_batch(&conn, &track_ids) else { return };
+    if playable.is_empty() {
+        return;
+    }
+    drop(conn);
+
+    let queue_tracks: Vec<TrackInfo> = playable
+        .into_iter()
+        .map(|t| TrackInfo {
+            track_id: t.id,
+            path: t.path.into(),
+            duration_ms: t.duration_ms as u64,
+            title: t.title,
+            artist: t.artist,
+            album: t.album,
+            album_id: t.album_id,
+            art_path: t.art_path,
+        })
+        .collect();
+
+    state.queue = Some(Queue::new(queue_tracks, index));
+    start_playback_from_queue(state, mpris, false, Some(Duration::from_millis(position_ms)));
 }
 
 fn build_snapshot(state: &EngineState) -> PlaybackSnapshot {
@@ -234,6 +356,7 @@ fn build_snapshot(state: &EngineState) -> PlaybackSnapshot {
         title: current.map(|t| t.title.clone()),
         artist: current.map(|t| t.artist.clone()),
         album: current.map(|t| t.album.clone()),
+        album_id: current.and_then(|t| t.album_id),
         art_path: current.and_then(|t| t.art_path.clone()),
     }
 }
