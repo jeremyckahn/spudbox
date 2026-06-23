@@ -85,3 +85,26 @@ fn seek_by(pos: Duration, direction: SeekDirection, amount: Duration) -> Duratio
         SeekDirection::Backward => pos.saturating_sub(amount),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forward_adds_to_position() {
+        let result = seek_by(Duration::from_secs(30), SeekDirection::Forward, Duration::from_secs(10));
+        assert_eq!(result, Duration::from_secs(40));
+    }
+
+    #[test]
+    fn backward_subtracts_from_position() {
+        let result = seek_by(Duration::from_secs(30), SeekDirection::Backward, Duration::from_secs(10));
+        assert_eq!(result, Duration::from_secs(20));
+    }
+
+    #[test]
+    fn backward_past_zero_saturates_instead_of_underflowing() {
+        let result = seek_by(Duration::from_secs(5), SeekDirection::Backward, Duration::from_secs(10));
+        assert_eq!(result, Duration::ZERO);
+    }
+}

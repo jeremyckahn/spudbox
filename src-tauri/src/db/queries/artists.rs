@@ -41,3 +41,39 @@ pub fn upsert(conn: &Connection, name: &str) -> Result<i64, AppError> {
     )?;
     Ok(id)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::queries::albums;
+    use crate::db::schema::test_connection;
+
+    #[test]
+    fn upsert_is_idempotent_for_the_same_name() {
+        let conn = test_connection();
+        let first = upsert(&conn, "Thrice").unwrap();
+        let second = upsert(&conn, "Thrice").unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn upsert_gives_different_names_different_ids() {
+        let conn = test_connection();
+        let a = upsert(&conn, "Thrice").unwrap();
+        let b = upsert(&conn, "Norma Jean").unwrap();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn list_album_artists_excludes_artists_with_no_albums() {
+        let conn = test_connection();
+        let has_album = upsert(&conn, "Has Album").unwrap();
+        upsert(&conn, "Track Only").unwrap();
+        albums::upsert(&conn, "Some Album", has_album, Some(2001)).unwrap();
+
+        let rows = list_album_artists(&conn).unwrap();
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["Has Album"]);
+        assert_eq!(rows[0].album_count, 1);
+    }
+}

@@ -39,6 +39,13 @@ npm run tauri build -- --bundles deb,appimage
 
 Produces a `.deb` (Debian/Ubuntu) and a portable `.AppImage` (any modern Linux distro) under `src-tauri/target/release/bundle/`.
 
+## Testing
+
+```
+cd src-tauri && cargo test    # Rust: db queries (in-memory SQLite), the queue model, scanner helpers
+npm run test                  # frontend: pure-logic helpers (vitest)
+```
+
 ## Recommended IDE Setup
 
 [Neovim](https://neovim.io/) with [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig), running `rust_analyzer` for the Tauri backend and `svelte` (svelte-language-server) for the frontend. [mason.nvim](https://github.com/williamboman/mason.nvim) is the easiest way to install both servers.

@@ -233,3 +233,147 @@ pub fn list_by_album(conn: &Connection, album_id: i64) -> Result<Vec<TrackRow>, 
     let rows = stmt.query_map([album_id], track_row_from)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::queries::{albums, artists};
+    use crate::db::schema::test_connection;
+
+    /// Tracks reference real artists/albums rows: the bundled SQLite build
+    /// compiles with `SQLITE_DEFAULT_FOREIGN_KEYS=1`, so FK constraints are
+    /// enforced even on a bare test connection that never runs `PRAGMA
+    /// foreign_keys`.
+    fn setup_artist_and_album(conn: &Connection) -> (i64, i64) {
+        let artist_id = artists::upsert(conn, "Thrice").unwrap();
+        let album_id = albums::upsert(conn, "Vheissu", artist_id, Some(2005)).unwrap();
+        (artist_id, album_id)
+    }
+
+    fn sample_track<'a>(path: &'a str, title: &'a str, artist_id: i64, album_id: i64, track_no: u32) -> NewTrack<'a> {
+        NewTrack {
+            path,
+            folder_path: "/music/album",
+            title,
+            track_artist_id: artist_id,
+            album_id,
+            genre_id: None,
+            track_no: Some(track_no),
+            disc_no: Some(1),
+            duration_ms: 200_000,
+            sample_rate: Some(44100),
+            bit_depth: Some(16),
+            channels: Some(2),
+            codec: "flac",
+            bitrate_kbps: None,
+            file_size: 1_000_000,
+            file_mtime: 1000,
+            now: 1000,
+        }
+    }
+
+    fn track_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0)).unwrap()
+    }
+
+    #[test]
+    fn upsert_inserts_a_new_track() {
+        let conn = test_connection();
+        let (artist_id, album_id) = setup_artist_and_album(&conn);
+        let id = upsert(&conn, &sample_track("/music/a.flac", "Image of the Invisible", artist_id, album_id, 1)).unwrap();
+        assert!(id > 0);
+        assert_eq!(track_count(&conn), 1);
+    }
+
+    #[test]
+    fn upsert_on_the_same_path_updates_in_place_instead_of_duplicating() {
+        let conn = test_connection();
+        let (artist_id, album_id) = setup_artist_and_album(&conn);
+        let mut t = sample_track("/music/a.flac", "Image of the Invisible", artist_id, album_id, 1);
+        let first_id = upsert(&conn, &t).unwrap();
+
+        t.duration_ms = 999_000;
+        let second_id = upsert(&conn, &t).unwrap();
+
+        assert_eq!(first_id, second_id);
+        assert_eq!(track_count(&conn), 1);
+        let duration: i64 = conn
+            .query_row("SELECT duration_ms FROM tracks WHERE id = ?1", [first_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(duration, 999_000);
+    }
+
+    #[test]
+    fn fingerprints_reflects_inserted_mtime_and_size() {
+        let conn = test_connection();
+        let (artist_id, album_id) = setup_artist_and_album(&conn);
+        let mut t = sample_track("/music/a.flac", "Image of the Invisible", artist_id, album_id, 1);
+        t.file_mtime = 12345;
+        t.file_size = 67890;
+        upsert(&conn, &t).unwrap();
+
+        let fps = fingerprints(&conn).unwrap();
+        assert_eq!(fps.get("/music/a.flac"), Some(&(12345, 67890)));
+    }
+
+    #[test]
+    fn sample_path_for_album_finds_a_track_or_none() {
+        let conn = test_connection();
+        let (artist_id, album_id) = setup_artist_and_album(&conn);
+        upsert(&conn, &sample_track("/music/a.flac", "Image of the Invisible", artist_id, album_id, 1)).unwrap();
+
+        assert_eq!(sample_path_for_album(&conn, album_id).unwrap(), Some("/music/a.flac".to_string()));
+        assert_eq!(sample_path_for_album(&conn, 999).unwrap(), None);
+    }
+
+    #[test]
+    fn get_playable_batch_preserves_requested_order_not_insertion_order() {
+        let conn = test_connection();
+        let (artist_id, album_id) = setup_artist_and_album(&conn);
+        let id_a = upsert(&conn, &sample_track("/music/a.flac", "Track A", artist_id, album_id, 1)).unwrap();
+        let id_b = upsert(&conn, &sample_track("/music/b.flac", "Track B", artist_id, album_id, 2)).unwrap();
+        let id_c = upsert(&conn, &sample_track("/music/c.flac", "Track C", artist_id, album_id, 3)).unwrap();
+
+        // Deliberately out of insertion order, and skips id_b entirely.
+        let playable = get_playable_batch(&conn, &[id_c, id_a]).unwrap();
+        let ids: Vec<i64> = playable.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![id_c, id_a]);
+        let _ = id_b;
+    }
+
+    #[test]
+    fn get_playable_batch_silently_skips_missing_ids() {
+        let conn = test_connection();
+        let (artist_id, album_id) = setup_artist_and_album(&conn);
+        let id_a = upsert(&conn, &sample_track("/music/a.flac", "Track A", artist_id, album_id, 1)).unwrap();
+
+        let playable = get_playable_batch(&conn, &[id_a, 99999]).unwrap();
+        assert_eq!(playable.len(), 1);
+        assert_eq!(playable[0].id, id_a);
+    }
+
+    #[test]
+    fn delete_by_paths_removes_only_the_given_paths() {
+        let conn = test_connection();
+        let (artist_id, album_id) = setup_artist_and_album(&conn);
+        upsert(&conn, &sample_track("/music/a.flac", "Track A", artist_id, album_id, 1)).unwrap();
+        upsert(&conn, &sample_track("/music/b.flac", "Track B", artist_id, album_id, 2)).unwrap();
+
+        let deleted = delete_by_paths(&conn, &["/music/a.flac".to_string()]).unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(track_count(&conn), 1);
+    }
+
+    #[test]
+    fn list_by_album_orders_by_disc_then_track_number() {
+        let conn = test_connection();
+        let (artist_id, album_id) = setup_artist_and_album(&conn);
+        upsert(&conn, &sample_track("/music/3.flac", "Three", artist_id, album_id, 3)).unwrap();
+        upsert(&conn, &sample_track("/music/1.flac", "One", artist_id, album_id, 1)).unwrap();
+        upsert(&conn, &sample_track("/music/2.flac", "Two", artist_id, album_id, 2)).unwrap();
+
+        let rows = list_by_album(&conn, album_id).unwrap();
+        let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, vec!["One", "Two", "Three"]);
+    }
+}

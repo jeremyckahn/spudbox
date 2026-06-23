@@ -64,3 +64,74 @@ pub fn set_art(conn: &Connection, album_id: i64, art_path: Option<&str>, art_sou
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::queries::artists;
+    use crate::db::schema::test_connection;
+
+    #[test]
+    fn upsert_is_idempotent_for_the_same_title_artist_year() {
+        let conn = test_connection();
+        let artist_id = artists::upsert(&conn, "Thrice").unwrap();
+        let first = upsert(&conn, "Vheissu", artist_id, Some(2005)).unwrap();
+        let second = upsert(&conn, "Vheissu", artist_id, Some(2005)).unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn upsert_with_different_year_creates_a_different_album() {
+        let conn = test_connection();
+        let artist_id = artists::upsert(&conn, "Thrice").unwrap();
+        let a = upsert(&conn, "Vheissu", artist_id, Some(2005)).unwrap();
+        let b = upsert(&conn, "Vheissu", artist_id, Some(1999)).unwrap();
+        assert_ne!(a, b);
+    }
+
+    /// Documents a real SQLite gotcha: a UNIQUE constraint treats every
+    /// NULL as distinct from every other NULL, so calling upsert twice with
+    /// no year does NOT dedupe the way it does with a real year value.
+    /// This is why the scanner resolves album identity through an
+    /// in-process cache during a scan rather than relying on this
+    /// constraint alone for albums with no YEAR tag.
+    #[test]
+    fn upsert_with_null_year_does_not_dedupe_across_separate_calls() {
+        let conn = test_connection();
+        let artist_id = artists::upsert(&conn, "Thrice").unwrap();
+        let a = upsert(&conn, "Untitled Demo", artist_id, None).unwrap();
+        let b = upsert(&conn, "Untitled Demo", artist_id, None).unwrap();
+        assert_ne!(a, b, "NULL year values are never equal to each other under the UNIQUE constraint");
+    }
+
+    #[test]
+    fn list_all_filters_by_artist_when_given() {
+        let conn = test_connection();
+        let a = artists::upsert(&conn, "Thrice").unwrap();
+        let b = artists::upsert(&conn, "Norma Jean").unwrap();
+        upsert(&conn, "Vheissu", a, Some(2005)).unwrap();
+        upsert(&conn, "Redeemer", b, Some(2002)).unwrap();
+
+        let all = list_all(&conn, None).unwrap();
+        assert_eq!(all.len(), 2);
+
+        let just_a = list_all(&conn, Some(a)).unwrap();
+        assert_eq!(just_a.len(), 1);
+        assert_eq!(just_a[0].title, "Vheissu");
+    }
+
+    #[test]
+    fn missing_art_then_set_art_round_trips() {
+        let conn = test_connection();
+        let artist_id = artists::upsert(&conn, "Thrice").unwrap();
+        let album_id = upsert(&conn, "Vheissu", artist_id, Some(2005)).unwrap();
+
+        assert_eq!(list_missing_art(&conn).unwrap(), vec![album_id]);
+
+        set_art(&conn, album_id, Some("/cache/art/1.jpg"), "embedded").unwrap();
+
+        assert_eq!(list_missing_art(&conn).unwrap(), Vec::<i64>::new());
+        let rows = list_all(&conn, None).unwrap();
+        assert_eq!(rows[0].art_path.as_deref(), Some("/cache/art/1.jpg"));
+    }
+}

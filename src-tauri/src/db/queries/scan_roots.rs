@@ -21,3 +21,35 @@ pub fn has_enabled(conn: &Connection) -> Result<bool, AppError> {
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM scan_roots WHERE enabled = 1", [], |row| row.get(0))?;
     Ok(count > 0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema::test_connection;
+
+    #[test]
+    fn has_enabled_is_false_until_a_root_is_added() {
+        let conn = test_connection();
+        assert!(!has_enabled(&conn).unwrap());
+        add(&conn, "/home/luke/Music").unwrap();
+        assert!(has_enabled(&conn).unwrap());
+    }
+
+    #[test]
+    fn add_is_idempotent_for_the_same_path() {
+        let conn = test_connection();
+        add(&conn, "/home/luke/Music").unwrap();
+        add(&conn, "/home/luke/Music").unwrap();
+        assert_eq!(list_enabled(&conn).unwrap(), vec!["/home/luke/Music".to_string()]);
+    }
+
+    #[test]
+    fn list_enabled_returns_every_added_root() {
+        let conn = test_connection();
+        add(&conn, "/home/luke/Music").unwrap();
+        add(&conn, "/mnt/nas/Music").unwrap();
+        let mut roots = list_enabled(&conn).unwrap();
+        roots.sort();
+        assert_eq!(roots, vec!["/home/luke/Music".to_string(), "/mnt/nas/Music".to_string()]);
+    }
+}

@@ -118,3 +118,88 @@ fn resize_and_save(bytes: &[u8], dest: &Path) -> Result<(), image::ImageError> {
     };
     resized.to_rgb8().save_with_format(dest, image::ImageFormat::Jpeg)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(label: &str) -> Self {
+            let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+            let dir = std::env::temp_dir().join(format!("spudbox_art_test_{label}_{}_{nanos}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn solid_png_bytes(width: u32, height: u32) -> Vec<u8> {
+        let img = image::RgbImage::new(width, height);
+        let dynamic = image::DynamicImage::ImageRgb8(img);
+        let mut bytes = Vec::new();
+        dynamic.write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+        bytes
+    }
+
+    #[test]
+    fn resize_and_save_shrinks_images_above_the_thumbnail_max() {
+        let dir = TempDir::new("shrink");
+        let dest = dir.0.join("out.jpg");
+        let bytes = solid_png_bytes(1000, 500);
+
+        resize_and_save(&bytes, &dest).unwrap();
+
+        let saved = image::open(&dest).unwrap();
+        assert_eq!(saved.width(), THUMBNAIL_MAX_DIM);
+        assert_eq!(saved.height(), 240, "aspect ratio (2:1) should be preserved when scaling down");
+    }
+
+    #[test]
+    fn resize_and_save_leaves_small_images_unscaled() {
+        let dir = TempDir::new("noscale");
+        let dest = dir.0.join("out.jpg");
+        let bytes = solid_png_bytes(100, 50);
+
+        resize_and_save(&bytes, &dest).unwrap();
+
+        let saved = image::open(&dest).unwrap();
+        assert_eq!((saved.width(), saved.height()), (100, 50));
+    }
+
+    #[test]
+    fn resize_and_save_rejects_invalid_image_bytes() {
+        let dir = TempDir::new("invalid");
+        let dest = dir.0.join("out.jpg");
+        assert!(resize_and_save(b"not an image", &dest).is_err());
+    }
+
+    #[test]
+    fn folder_art_bytes_finds_a_known_cover_filename() {
+        let dir = TempDir::new("folder_art");
+        let png = solid_png_bytes(10, 10);
+        std::fs::write(dir.0.join("cover.jpg"), &png).unwrap();
+        let track_path = dir.0.join("01 Track.flac");
+        std::fs::write(&track_path, b"not real audio").unwrap();
+
+        assert_eq!(folder_art_bytes(&track_path), Some(png));
+    }
+
+    #[test]
+    fn folder_art_bytes_is_none_when_no_cover_image_present() {
+        let dir = TempDir::new("no_folder_art");
+        let track_path = dir.0.join("01 Track.flac");
+        std::fs::write(&track_path, b"not real audio").unwrap();
+
+        assert_eq!(folder_art_bytes(&track_path), None);
+    }
+}
