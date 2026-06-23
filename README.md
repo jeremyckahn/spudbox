@@ -2,6 +2,11 @@
 
 A custom music player for Linux, built as a nicer alternative to Clementine: library browsing with album art, hi-res FLAC/MP3/AAC/WAV playback, gapless transitions, and MPRIS integration for system media controls. Built with Tauri v2, Rust, and Svelte.
 
+<p align="center">
+  <img src="docs/screenshots/album-grid.png" alt="Album grid view" width="48%">
+  <img src="docs/screenshots/track-list.png" alt="Track list view" width="48%">
+</p>
+
 ## Features
 
 - Library scanning with incremental rescans (skips unchanged files), automatic on launch
