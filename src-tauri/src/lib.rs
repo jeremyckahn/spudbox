@@ -1,12 +1,17 @@
+mod audio;
 mod commands;
 mod db;
 mod error;
 mod events;
+mod mpris;
 mod scanner;
 mod state;
 
+use std::sync::Arc;
+
 use tauri::Manager;
 
+use mpris::Mpris;
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,14 +32,25 @@ pub fn run() {
                 db::schema::run_migrations(&mut conn).expect("failed to run migrations");
             }
 
-            app.manage(AppState { db: pool });
+            let engine_builder = audio::EngineBuilder::new();
+            let player = engine_builder.handle();
+            let mpris = Arc::new(Mpris::init(player.clone()).expect("failed to init mpris"));
+            engine_builder.spawn(app.handle().clone(), mpris);
+
+            app.manage(AppState { db: pool, player });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::library::ping,
             commands::library::library_add_root,
             commands::library::library_scan,
-            commands::library::library_get_tracks
+            commands::library::library_get_tracks,
+            commands::playback::playback_play_track,
+            commands::playback::playback_play,
+            commands::playback::playback_pause,
+            commands::playback::playback_seek,
+            commands::playback::playback_set_volume,
+            commands::playback::playback_get_snapshot
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

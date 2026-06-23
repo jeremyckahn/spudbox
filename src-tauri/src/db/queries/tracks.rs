@@ -93,6 +93,35 @@ pub fn fingerprints(conn: &Connection) -> Result<HashMap<String, (i64, i64)>, Ap
     Ok(map)
 }
 
+pub struct PlayableTrack {
+    pub path: String,
+    pub duration_ms: i64,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+}
+
+pub fn get_playable(conn: &Connection, track_id: i64) -> Result<PlayableTrack, AppError> {
+    conn.query_row(
+        "SELECT t.path, t.duration_ms, t.title, ar.name, al.title
+         FROM tracks t
+         LEFT JOIN artists ar ON ar.id = t.track_artist_id
+         LEFT JOIN albums al ON al.id = t.album_id
+         WHERE t.id = ?1",
+        [track_id],
+        |row| {
+            Ok(PlayableTrack {
+                path: row.get(0)?,
+                duration_ms: row.get(1)?,
+                title: row.get(2)?,
+                artist: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                album: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            })
+        },
+    )
+    .map_err(AppError::from)
+}
+
 pub fn delete_by_paths(conn: &Connection, paths: &[String]) -> Result<usize, AppError> {
     let mut deleted = 0;
     for path in paths {
