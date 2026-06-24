@@ -1,5 +1,6 @@
 <script lang="ts">
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { Pause, Play, SkipBack, SkipForward } from "@lucide/svelte";
   import { library } from "$lib/stores/library.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { formatDuration } from "$lib/format";
@@ -56,14 +57,18 @@
       onclick={() => player.previous()}
       aria-label="Previous"
     >
-      ⏮
+      <SkipBack size={18} fill="currentColor" />
     </button>
     <button
       class="play-pause"
       disabled={!player.snapshot.track_id}
       onclick={() => player.togglePlayPause()}
     >
-      {player.snapshot.state === "playing" ? "❙❙" : "▶"}
+      {#if player.snapshot.state === "playing"}
+        <Pause size={18} fill="currentColor" />
+      {:else}
+        <Play size={18} fill="currentColor" />
+      {/if}
     </button>
     <button
       class="skip"
@@ -71,7 +76,7 @@
       onclick={() => player.next()}
       aria-label="Next"
     >
-      ⏭
+      <SkipForward size={18} fill="currentColor" />
     </button>
     <div class="scrubber">
       <span class="time">{formatDuration(seeking ? seekValue : player.snapshot.position_ms)}</span>

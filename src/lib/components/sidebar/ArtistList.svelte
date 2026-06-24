@@ -1,5 +1,6 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
+  import { ChevronDown, ChevronRight } from "@lucide/svelte";
   import { library } from "$lib/stores/library.svelte";
   import type { AlbumRow } from "$lib/types";
 
@@ -93,7 +94,11 @@
           onclick={() => toggleExpanded(artist.id)}
           aria-label={isExpanded(artist.id) ? "Collapse albums" : "Expand albums"}
         >
-          {isExpanded(artist.id) ? "▾" : "▸"}
+          {#if isExpanded(artist.id)}
+            <ChevronDown size={14} />
+          {:else}
+            <ChevronRight size={14} />
+          {/if}
         </button>
         <button
           class="artist-item"
@@ -163,6 +168,9 @@
   }
 
   .caret {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: none;
     color: var(--text-tertiary);

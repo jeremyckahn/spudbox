@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createVirtualizer } from "@tanstack/svelte-virtual";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { ArrowLeft } from "@lucide/svelte";
   import { get } from "svelte/store";
   import { library } from "$lib/stores/library.svelte";
   import { player } from "$lib/stores/player.svelte";
@@ -35,7 +36,10 @@
 
 <div class="track-view">
   <div class="header">
-    <button class="back" onclick={() => library.backToAlbums()}>&larr; Albums</button>
+    <button class="back" onclick={() => library.backToAlbums()}>
+      <ArrowLeft size={16} />
+      Albums
+    </button>
     {#if album}
       <div class="art">
         {#if album.art_path}
@@ -87,6 +91,9 @@
   }
 
   .back {
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
     background: none;
     border: none;
     color: var(--text-secondary);
