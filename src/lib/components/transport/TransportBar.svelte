@@ -4,6 +4,14 @@
   import { library } from "$lib/stores/library.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { formatDuration } from "$lib/format";
+  import StarRating from "$lib/components/rating/StarRating.svelte";
+
+  // Looked up from the complete unfiltered list (not the artist-filtered
+  // `albums`) since playback can be on an album outside whatever's
+  // currently browsed — same reasoning as goToAlbum below.
+  const currentAlbum = $derived(
+    library.allAlbums.find((a) => a.id === player.snapshot.album_id) ?? null,
+  );
 
   function goToCurrentAlbum() {
     if (player.snapshot.album_id !== null) {
@@ -47,6 +55,11 @@
     <div class="text">
       <div class="title">{player.snapshot.title ?? "Nothing playing"}</div>
       <div class="artist">{player.snapshot.artist ?? ""}</div>
+      {#if currentAlbum}
+        <div class="rating-row">
+          <StarRating rating={currentAlbum.rating} readonly size={11} />
+        </div>
+      {/if}
     </div>
   </button>
 
@@ -176,6 +189,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .rating-row {
+    margin-top: 0.3em;
   }
 
   .controls {

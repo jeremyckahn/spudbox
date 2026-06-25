@@ -50,6 +50,7 @@ pub fn run() {
             commands::library::library_get_tracks_by_album,
             commands::library::library_get_artists,
             commands::library::library_get_albums,
+            commands::library::library_set_album_rating,
             commands::playback::playback_play_queue,
             commands::playback::playback_play,
             commands::playback::playback_pause,

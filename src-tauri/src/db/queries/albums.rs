@@ -11,12 +11,14 @@ pub struct AlbumRow {
     pub album_artist_id: i64,
     pub year: Option<i64>,
     pub art_path: Option<String>,
+    pub rating: Option<f64>,
 }
 
 pub fn list_all(conn: &Connection, artist_id: Option<i64>) -> Result<Vec<AlbumRow>, AppError> {
-    let sql = "SELECT al.id, al.title, ar.name, al.album_artist_id, al.year, al.art_path
+    let sql = "SELECT al.id, al.title, ar.name, al.album_artist_id, al.year, al.art_path, art.rating
          FROM albums al
          LEFT JOIN artists ar ON ar.id = al.album_artist_id
+         LEFT JOIN album_ratings art ON art.album_id = al.id
          WHERE ?1 IS NULL OR al.album_artist_id = ?1
          ORDER BY ar.sort_name, ar.name, al.year, al.title";
     let mut stmt = conn.prepare(sql)?;
@@ -28,6 +30,7 @@ pub fn list_all(conn: &Connection, artist_id: Option<i64>) -> Result<Vec<AlbumRo
             album_artist_id: row.get(3)?,
             year: row.get(4)?,
             art_path: row.get(5)?,
+            rating: row.get(6)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)

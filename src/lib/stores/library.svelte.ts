@@ -65,6 +65,14 @@ function createLibraryStore() {
     await selectAlbum(albumId);
   }
 
+  async function setAlbumRating(albumId: number, rating: number | null) {
+    await commands.librarySetAlbumRating(albumId, rating);
+    const patch = (list: AlbumRow[]) =>
+      list.map((a) => (a.id === albumId ? { ...a, rating } : a));
+    albums = patch(albums);
+    allAlbums = patch(allAlbums);
+  }
+
   async function refresh() {
     loading = true;
     try {
@@ -128,6 +136,7 @@ function createLibraryStore() {
     selectArtistAndAlbum,
     goToAlbum,
     backToAlbums,
+    setAlbumRating,
     refresh,
     rescan,
     addFolder,

@@ -6,6 +6,7 @@
   import { library } from "$lib/stores/library.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { formatDuration } from "$lib/format";
+  import StarRating from "$lib/components/rating/StarRating.svelte";
 
   const ROW_HEIGHT = 36;
 
@@ -51,6 +52,9 @@
       <div>
         <div class="title">{album.title}</div>
         <div class="subtitle">{album.album_artist}{album.year ? ` · ${album.year}` : ""}</div>
+        <div class="rating-row">
+          <StarRating rating={album.rating} size={16} onRate={(r) => library.setAlbumRating(album.id, r)} />
+        </div>
       </div>
     {/if}
   </div>
@@ -135,6 +139,10 @@
   .subtitle {
     color: var(--text-secondary);
     font-size: 0.85em;
+  }
+
+  .rating-row {
+    margin-top: 0.4em;
   }
 
   .track-scroll {

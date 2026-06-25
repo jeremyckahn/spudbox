@@ -26,6 +26,7 @@ export type AlbumRow = {
   album_artist_id: number;
   year: number | null;
   art_path: string | null;
+  rating: number | null;
 };
 
 export type TrackRow = {

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::db::queries::{albums, artists, scan_roots, tracks};
+use crate::db::queries::{album_ratings, albums, artists, scan_roots, tracks};
 use crate::error::AppError;
 use crate::events::{ScanProgress, SCAN_PROGRESS};
 use crate::scanner::art::ArtStats;
@@ -101,4 +101,14 @@ pub fn library_get_albums(
 ) -> Result<Vec<albums::AlbumRow>, AppError> {
     let conn = state.db.get()?;
     albums::list_all(&conn, artist_id)
+}
+
+#[tauri::command]
+pub fn library_set_album_rating(
+    state: State<AppState>,
+    album_id: i64,
+    rating: Option<f64>,
+) -> Result<(), AppError> {
+    let conn = state.db.get()?;
+    album_ratings::set_rating(&conn, album_id, rating)
 }

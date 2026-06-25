@@ -13,6 +13,8 @@ export const commands = {
   libraryGetTracks: () => invoke<TrackRow[]>("library_get_tracks"),
   libraryGetTracksByAlbum: (albumId: number) =>
     invoke<TrackRow[]>("library_get_tracks_by_album", { albumId }),
+  librarySetAlbumRating: (albumId: number, rating: number | null) =>
+    invoke<void>("library_set_album_rating", { albumId, rating }),
 
   playbackPlayQueue: (trackIds: number[], startIndex: number) =>
     invoke<void>("playback_play_queue", { trackIds, startIndex }),

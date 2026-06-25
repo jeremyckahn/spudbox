@@ -3,10 +3,14 @@
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { get } from "svelte/store";
   import { library } from "$lib/stores/library.svelte";
+  import StarRating from "$lib/components/rating/StarRating.svelte";
 
   const MIN_CARD_WIDTH = 170;
   const CARD_GAP = 20;
-  const TEXT_HEIGHT = 44;
+  // Sized for 3 text lines (title + subtitle + rating row); always reserve
+  // the rating row's height even for unrated albums so every card in the
+  // virtualizer is the same height regardless of rating state.
+  const TEXT_HEIGHT = 62;
 
   let scrollEl: HTMLDivElement | undefined = $state();
   let containerWidth = $state(0);
@@ -82,6 +86,9 @@
             </div>
             <div class="title">{album.title}</div>
             <div class="subtitle">{album.album_artist}{album.year ? ` · ${album.year}` : ""}</div>
+            <div class="rating-row">
+              <StarRating rating={album.rating} readonly size={12} />
+            </div>
           </button>
         {/each}
       </div>
@@ -165,10 +172,15 @@
 
   .subtitle {
     color: var(--text-secondary);
-    font-size: 0.8em;
+    font-size: 0.9em;
+    margin-top: 2px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .rating-row {
+    margin-top: 0.35em;
   }
 
   .album-card:hover .title {
