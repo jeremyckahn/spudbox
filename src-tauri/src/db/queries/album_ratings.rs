@@ -2,23 +2,40 @@ use rusqlite::{params, Connection};
 
 use crate::error::AppError;
 
+fn unix_now() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64
+}
+
 /// `None` deletes the row (unrated); `Some(r)` upserts it. Absence of a row
 /// is the unrated sentinel — see migration 0003 for why this isn't a
-/// nullable column instead.
-pub fn set_rating(conn: &Connection, album_id: i64, rating: Option<f64>) -> Result<(), AppError> {
+/// nullable column instead. `updated_at` is stamped automatically for
+/// cloud LWW conflict resolution.
+pub fn set_rating(conn: &Connection, album_id: i64, rating: Option<f64>) -> Result<i64, AppError> {
+    let now = unix_now();
     match rating {
         Some(r) => conn.execute(
-            "INSERT INTO album_ratings (album_id, rating) VALUES (?1, ?2)
-             ON CONFLICT(album_id) DO UPDATE SET rating = excluded.rating",
-            params![album_id, r],
+            "INSERT INTO album_ratings (album_id, rating, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(album_id) DO UPDATE SET
+                 rating = excluded.rating,
+                 updated_at = excluded.updated_at",
+            params![album_id, r, now],
         )?,
-        None => conn.execute("DELETE FROM album_ratings WHERE album_id = ?1", params![album_id])?,
+        // Write a tombstone row (rating=NULL, updated_at=now) instead of deleting the row,
+        // so cloud sync can propagate the unrating to other machines via the updated_at LWW.
+        None => conn.execute(
+            "INSERT INTO album_ratings (album_id, rating, updated_at) VALUES (?1, NULL, ?2)
+             ON CONFLICT(album_id) DO UPDATE SET rating = NULL, updated_at = excluded.updated_at",
+            params![album_id, now],
+        )?,
     };
-    Ok(())
+    Ok(now)
 }
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::OptionalExtension;
+
     use super::*;
     use crate::db::queries::{albums, artists};
     use crate::db::schema::test_connection;
@@ -35,6 +52,14 @@ mod tests {
         set_rating(&conn, album_id, Some(8.5)).unwrap();
         let rows = albums::list_all(&conn, None).unwrap();
         assert_eq!(rows[0].rating, Some(8.5));
+    }
+
+    #[test]
+    fn set_rating_returns_a_nonzero_timestamp() {
+        let conn = test_connection();
+        let album_id = setup_album(&conn);
+        let ts = set_rating(&conn, album_id, Some(5.0)).unwrap();
+        assert!(ts > 0, "timestamp should be a real unix timestamp");
     }
 
     #[test]
@@ -63,5 +88,53 @@ mod tests {
         setup_album(&conn);
         let rows = albums::list_all(&conn, None).unwrap();
         assert_eq!(rows[0].rating, None);
+    }
+
+    #[test]
+    fn set_rating_none_writes_tombstone_row_not_a_deletion() {
+        let conn = test_connection();
+        let album_id = setup_album(&conn);
+        set_rating(&conn, album_id, Some(7.0)).unwrap();
+        set_rating(&conn, album_id, None).unwrap();
+
+        // A tombstone row must exist (so cloud sync can propagate the deletion)
+        let row: Option<Option<f64>> = conn
+            .query_row(
+                "SELECT rating FROM album_ratings WHERE album_id = ?1",
+                [album_id],
+                |r| r.get::<_, Option<f64>>(0),
+            )
+            .optional()
+            .unwrap();
+        assert!(row.is_some(), "tombstone row must exist after unrating");
+        assert_eq!(row.unwrap(), None, "tombstone row must have NULL rating");
+    }
+
+    #[test]
+    fn tombstone_has_nonzero_updated_at_for_lww() {
+        let conn = test_connection();
+        let album_id = setup_album(&conn);
+        set_rating(&conn, album_id, Some(7.0)).unwrap();
+        set_rating(&conn, album_id, None).unwrap();
+
+        let ts: i64 = conn
+            .query_row(
+                "SELECT updated_at FROM album_ratings WHERE album_id = ?1",
+                [album_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(ts > 0, "tombstone must carry a real timestamp for LWW comparison");
+    }
+
+    #[test]
+    fn re_rating_after_tombstone_restores_rating() {
+        let conn = test_connection();
+        let album_id = setup_album(&conn);
+        set_rating(&conn, album_id, Some(5.0)).unwrap();
+        set_rating(&conn, album_id, None).unwrap();
+        set_rating(&conn, album_id, Some(9.0)).unwrap();
+        let rows = albums::list_all(&conn, None).unwrap();
+        assert_eq!(rows[0].rating, Some(9.0));
     }
 }
