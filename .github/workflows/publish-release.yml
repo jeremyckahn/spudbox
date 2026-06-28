@@ -29,8 +29,8 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "${{ github.actor }}"
+          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
       - name: Update Version
         id: version
