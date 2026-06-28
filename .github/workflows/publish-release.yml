@@ -36,21 +36,6 @@ jobs:
           git config --local user.name "${{ github.actor }}"
           git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
 
-      - name: Update Version
-        id: version
-        run: |
-          # Use npm to bump version in package.json and package-lock.json without committing yet
-          NEW_VERSION=$(npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version)
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Commit and Push Changes
-        run: |
-          git add package.json package-lock.json
-          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }}"
-          git tag ${{ steps.version.outputs.new_version }}
-          git push origin HEAD:${{ github.ref }}
-          git push origin ${{ steps.version.outputs.new_version }}
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -74,6 +59,29 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Dry Run Build
+        # We run a dry run build here to ensure that the frontend and Rust code compile successfully
+        # BEFORE we commit any version bumps or push tags to GitHub. This prevents the repository
+        # from being left in a broken/inconsistent state (i.e., tag created but release compilation failed).
+        # Note: This means we compile the app twice. However, because we configure `rust-cache` above,
+        # Cargo caches the compilation artifacts, making the second compilation in `tauri-action` extremely fast.
+        run: npm run tauri build
+
+      - name: Update Version
+        id: version
+        run: |
+          # Use npm to bump version in package.json and package-lock.json without committing yet
+          NEW_VERSION=$(npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version)
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit and Push Changes
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }}"
+          git tag ${{ steps.version.outputs.new_version }}
+          git push origin HEAD:${{ github.ref }}
+          git push origin ${{ steps.version.outputs.new_version }}
 
       - name: Build and Release Tauri App
         uses: tauri-apps/tauri-action@v0
