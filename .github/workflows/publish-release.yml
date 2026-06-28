@@ -1,0 +1,90 @@
+name: "Publish Release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Required to push changes back
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update Version
+        id: version
+        run: |
+          # Use npm to bump version in package.json and package-lock.json without committing yet
+          NEW_VERSION=$(npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version)
+
+          # Remove 'v' prefix for tauri.conf.json
+          NEW_VERSION_CLEAN=${NEW_VERSION#v}
+
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Update tauri.conf.json version
+          jq ".version = \"$NEW_VERSION_CLEAN\"" src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+
+      - name: Commit and Push Changes
+        run: |
+          git add package.json package-lock.json src-tauri/tauri.conf.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }}"
+          git tag ${{ steps.version.outputs.new_version }}
+          git push origin HEAD:${{ github.ref }}
+          git push origin ${{ steps.version.outputs.new_version }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libasound2-dev libdbus-1-dev pkg-config
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and Release Tauri App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ steps.version.outputs.new_version }}
+          releaseName: "Release ${{ steps.version.outputs.new_version }}"
+          releaseBody: "Automated release for version ${{ steps.version.outputs.new_version }}"
+          releaseDraft: false
+          prerelease: false
