@@ -16,6 +16,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   publish:
     runs-on: ubuntu-22.04
@@ -37,18 +41,11 @@ jobs:
         run: |
           # Use npm to bump version in package.json and package-lock.json without committing yet
           NEW_VERSION=$(npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version)
-
-          # Remove 'v' prefix for tauri.conf.json
-          NEW_VERSION_CLEAN=${NEW_VERSION#v}
-
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-          # Update tauri.conf.json version
-          jq ".version = \"$NEW_VERSION_CLEAN\"" src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp && mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
 
       - name: Commit and Push Changes
         run: |
-          git add package.json package-lock.json src-tauri/tauri.conf.json
+          git add package.json package-lock.json
           git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }}"
           git tag ${{ steps.version.outputs.new_version }}
           git push origin HEAD:${{ github.ref }}
