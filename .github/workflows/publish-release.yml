@@ -1,0 +1,95 @@
+name: "Publish Release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Required to push changes back
+          token: ${{ secrets.RELEASE_KEY || secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --local user.name "${{ github.actor }}"
+          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libasound2-dev libdbus-1-dev pkg-config
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Dry Run Build
+        # We run a dry run build here to ensure that the frontend and Rust code compile successfully
+        # BEFORE we commit any version bumps or push tags to GitHub. This prevents the repository
+        # from being left in a broken/inconsistent state (i.e., tag created but release compilation failed).
+        # Note: This means we compile the app twice. However, because we configure `rust-cache` above,
+        # Cargo caches the compilation artifacts, making the second compilation in `tauri-action` extremely fast.
+        run: npm run tauri build
+
+      - name: Update Version
+        id: version
+        run: |
+          # Use npm to bump version in package.json and package-lock.json without committing yet
+          NEW_VERSION=$(npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version)
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit and Push Changes
+        run: |
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }}"
+          git tag ${{ steps.version.outputs.new_version }}
+          git push origin HEAD:${{ github.ref }}
+          git push origin ${{ steps.version.outputs.new_version }}
+
+      - name: Build and Release Tauri App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_KEY || secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ steps.version.outputs.new_version }}
+          releaseName: "Release ${{ steps.version.outputs.new_version }}"
+          releaseBody: "Automated release for version ${{ steps.version.outputs.new_version }}"
+          releaseDraft: false
+          prerelease: false
